@@ -1,6 +1,9 @@
 # install.packages("dataRetrieval")
+# install.packages("glue")
+# install.packages("sqldf")
 library(dataRetrieval)
 library(glue)
+library(sqldf)
 
 #### retrive site information for Texas wells ####
 
@@ -37,7 +40,7 @@ for (i in 1:totalsites) {
   if(class(temp) != "try-error"){
     gwl_data = rbind(gwl_data,temp)
   } else{
-    msg = glue("   Attention -- well site {i} could not be retrieived")
+    msg = glue("   Attention -- well site {i} could not be retrieived",append = TRUE)
     cat(msg,file = log)
     print(msg)
   }
@@ -59,8 +62,41 @@ for (i in 1:totalsites){
   if(class(temp) != "try-error"){
     sitedata = rbind(sitedata,temp)
   } else{
-    msg = glue("   Attention -- well site {i} could not be retrieived")
+    msg = glue("   Attention -- well site {i} could not be retrieived",append = TRUE)
     cat(msg,file = log2)
     print(msg)
   }
 }
+
+
+#### merge site info with ground level data ####
+print(head(gwl_data))
+print(head(sitedata))
+
+gwl_site = merge(gwl_data,sitedata,by="site_no",all.x = TRUE)
+
+#### few cleanups ####
+
+## remove na data
+gwl_site = na.omit(gwl_site)
+
+## remove observations before 2010
+cutoffdate = '2010-01-01'
+gwl_site = gwl_site[gwl_site$lev_dt>cutoffdate,]
+
+## select most 5 (if avaialble) recent observation for each site
+selected = sqldf("select * from gwl_site as g1
+              where 5 > (select count(distinct(g2.lev_dt))
+                          from gwl_site as g2
+                          where g2.lev_dt > g1.lev_dt
+                          and g2.site_no = g1.site_no
+                 )")
+
+# generate the 5-year mean for each site
+gwl_avg = sqldf(" select *, avg(lev_va) as avg_gwl
+                  from selected 
+                  group by site_no
+                ")
+
+columnstokeep = colnames(gwl_avg)[-2]
+gwl_avg = gwl_avg[columnstokeep]
